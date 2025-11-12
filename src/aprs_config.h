@@ -55,10 +55,11 @@
 // DSP配置
 // ============================================================================
 // 检测MCU是否支持FPU和DSP
+// 注意：CMSIS-DSP需要在Arduino中手动配置链接库，暂时禁用
 #if defined(STM32L4xx) || defined(STM32F4xx) || defined(STM32G4xx)
   #define HAS_FPU           1
   #define HAS_DSP           1
-  #define USE_CMSIS_DSP     1
+  #define USE_CMSIS_DSP     0  // 暂时禁用，避免链接错误
 #else
   #define HAS_FPU           0
   #define HAS_DSP           0

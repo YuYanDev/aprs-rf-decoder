@@ -40,7 +40,7 @@ public:
    * 初始化解码器
    * @return 成功返回true
    */
-  bool begin();
+  virtual bool begin();
   
   /**
    * 处理来自射频模块的采样数据
@@ -58,7 +58,7 @@ public:
    * 获取解码后的AX.25帧
    * @return 指向帧的指针
    */
-  AX25Frame* getFrame();
+  APRS_AX25Frame* getFrame();
   
   /**
    * 获取APRS消息（信息字段）

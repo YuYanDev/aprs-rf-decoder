@@ -14,20 +14,20 @@
 typedef struct {
   char callsign[7];   // 呼号（最多6个字符）
   uint8_t ssid;       // SSID (0-15)
-} AX25Address;
+} APRS_AX25Address;
 
-// AX.25帧结构
+// AX.25帧结构 (重命名以避免与RadioLib冲突)
 typedef struct {
-  AX25Address destination;      // 目标地址
-  AX25Address source;            // 源地址
-  AX25Address digipeaters[8];    // 中继路径
+  APRS_AX25Address destination;      // 目标地址
+  APRS_AX25Address source;            // 源地址
+  APRS_AX25Address digipeaters[8];    // 中继路径
   uint8_t numDigipeaters;        // 中继数量
   uint8_t control;               // 控制字段
   uint8_t pid;                   // 协议标识
   uint8_t info[256];             // 信息字段
   uint16_t infoLen;              // 信息长度
   bool valid;                    // CRC校验有效
-} AX25Frame;
+} APRS_AX25Frame;
 
 class AX25Parser {
 public:
@@ -60,7 +60,7 @@ public:
    * 获取解析后的帧
    * @return 指向解析后帧的指针
    */
-  AX25Frame* getFrame();
+  APRS_AX25Frame* getFrame();
   
   /**
    * 重置解析器
@@ -68,7 +68,7 @@ public:
   void reset();
 
 protected:
-  AX25Frame currentFrame;       // 当前帧
+  APRS_AX25Frame currentFrame;       // 当前帧
   uint8_t rawBuffer[AX25_MAX_FRAME_LEN];  // 原始字节缓冲
   uint16_t rawBufferPos;        // 缓冲位置
   uint16_t crc;                 // CRC累加器
@@ -78,7 +78,7 @@ protected:
    * @param buffer 地址字节数组
    * @param address 输出地址结构
    */
-  void parseAddress(uint8_t* buffer, AX25Address* address);
+  void parseAddress(uint8_t* buffer, APRS_AX25Address* address);
   
   /**
    * 更新CRC

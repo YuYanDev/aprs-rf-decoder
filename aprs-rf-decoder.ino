@@ -69,7 +69,7 @@
 
 
 // RadioLib模块实例
-SX1278 radio = new Module(SX127X_NSS, SX127X_DIO0, SX127X_RESET, DIGITALPIN_NC);
+SX1278 radio = new Module(SX127X_NSS, SX127X_DIO0, SX127X_RESET, RADIOLIB_NC);
 
 // ============================================================================
 // 全局变量
@@ -90,9 +90,9 @@ const uint32_t STATS_INTERVAL = 10000;  // 10秒输出一次统计
 /**
  * 读取单个比特（由RadioLib直接模式调用）
  */
-void IRAM_ATTR readBit(void) {
-  // 读取DIO2引脚的比特值
-  uint8_t bit = radio.readBit(SX127X_DIO2);
+void readBit(void) {
+  // 直接从DIO2引脚读取比特值
+  uint8_t bit = digitalRead(SX127X_DIO2);
   
   // 直接处理（实时模式）
   decoder.processSample(bit);
@@ -299,7 +299,7 @@ void loop() {
   // 检查是否有解码完成的帧
   if (decoder.available()) {
     // 获取解码后的帧
-    AX25Frame* frame = decoder.getFrame();
+    APRS_AX25Frame* frame = decoder.getFrame();
     
     if (frame != nullptr && frame->valid) {
       // 发送到UART1

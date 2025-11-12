@@ -144,7 +144,7 @@ bool APRSDecoder::available() {
   return frameAvailable;
 }
 
-AX25Frame* APRSDecoder::getFrame() {
+APRS_AX25Frame* APRSDecoder::getFrame() {
   frameAvailable = false;
   return ax25Parser.getFrame();
 }
@@ -154,7 +154,7 @@ uint16_t APRSDecoder::getAPRSMessage(char* buffer, uint16_t maxLen) {
     return 0;
   }
   
-  AX25Frame* frame = ax25Parser.getFrame();
+  APRS_AX25Frame* frame = ax25Parser.getFrame();
   
   // 复制信息字段到输出缓冲区
   uint16_t len = frame->infoLen;

@@ -18,14 +18,14 @@ public:
   /**
    * 初始化解调器
    */
-  bool begin();
+  virtual bool begin();
   
   /**
    * 处理单个采样点
    * @param sample 采样值 (0或1)
    * @return 如果解调出一个完整比特，返回true
    */
-  bool processSample(uint8_t sample);
+  virtual bool processSample(uint8_t sample);
   
   /**
    * 获取解调后的比特
@@ -36,7 +36,7 @@ public:
   /**
    * 重置解调器状态
    */
-  void reset();
+  virtual void reset();
   
   /**
    * 获取信号质量指标

@@ -19,7 +19,7 @@ void AX25Parser::begin() {
 }
 
 void AX25Parser::reset() {
-  memset(&currentFrame, 0, sizeof(AX25Frame));
+  memset(&currentFrame, 0, sizeof(APRS_AX25Frame));
   memset(rawBuffer, 0, sizeof(rawBuffer));
   rawBufferPos = 0;
   crc = CRC_INIT;
@@ -29,7 +29,7 @@ void AX25Parser::startFrame() {
   reset();
 }
 
-void AX25Parser::parseAddress(uint8_t* buffer, AX25Address* address) {
+void AX25Parser::parseAddress(uint8_t* buffer, APRS_AX25Address* address) {
   // AX.25地址格式：每个字符左移1位编码
   memset(address->callsign, 0, sizeof(address->callsign));
   
@@ -134,7 +134,7 @@ bool AX25Parser::endFrame() {
   return true;
 }
 
-AX25Frame* AX25Parser::getFrame() {
+APRS_AX25Frame* AX25Parser::getFrame() {
   return &currentFrame;
 }
 

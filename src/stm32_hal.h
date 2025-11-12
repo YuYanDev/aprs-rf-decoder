@@ -9,6 +9,7 @@
 #define STM32_HAL_H
 
 #include "aprs_config.h"
+#include "ax25_parser.h"
 #include <stdint.h>
 
 // 检测STM32系列
@@ -162,7 +163,7 @@ public:
    * 发送APRS帧（格式化输出）
    * @param frame AX.25帧
    */
-  void sendAPRSFrame(AX25Frame* frame);
+  void sendAPRSFrame(APRS_AX25Frame* frame);
   
   /**
    * 检查是否传输忙
@@ -184,7 +185,7 @@ protected:
   /**
    * 格式化呼号
    */
-  void formatCallsign(char* output, AX25Address* addr);
+  void formatCallsign(char* output, APRS_AX25Address* addr);
 };
 
 // 全局单例

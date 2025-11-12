@@ -180,7 +180,7 @@ void UARTOutput::write(const uint8_t* data, uint16_t length) {
   }
 }
 
-void UARTOutput::formatCallsign(char* output, AX25Address* addr) {
+void UARTOutput::formatCallsign(char* output, APRS_AX25Address* addr) {
   // 格式化呼号为 "CALL-SSID" 格式
   int len = 0;
   for (int i = 0; i < 7 && addr->callsign[i] != '\0'; i++) {
@@ -198,7 +198,7 @@ void UARTOutput::formatCallsign(char* output, AX25Address* addr) {
   output[len] = '\0';
 }
 
-void UARTOutput::sendAPRSFrame(AX25Frame* frame) {
+void UARTOutput::sendAPRSFrame(APRS_AX25Frame* frame) {
   if (uartPort == nullptr || frame == nullptr || !frame->valid) {
     return;
   }
