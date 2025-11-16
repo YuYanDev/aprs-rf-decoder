@@ -71,6 +71,19 @@
 // RadioLib模块实例
 SX1278 radio = new Module(SX127X_NSS, SX127X_DIO0, SX127X_RESET, RADIOLIB_NC);
 
+// UART1实例 (用于APRS输出)
+// HardwareSerial构造函数: HardwareSerial(RX引脚, TX引脚)
+// 默认使用 PA10=RX, PA9=TX (USART1)
+HardwareSerial Serial1(PA10, PA9);
+
+// 如果需要使用其他引脚，可以修改上面的定义，例如：
+// HardwareSerial Serial1(PA3, PA2);   // USART2: RX=PA3, TX=PA2
+// HardwareSerial Serial1(PB11, PB10); // USART3: RX=PB11, TX=PB10
+// 
+// 或者直接使用USART实例（某些STM32duino版本）：
+// HardwareSerial Serial1(USART1);
+// HardwareSerial Serial1(USART2);
+
 // ============================================================================
 // 全局变量
 // ============================================================================
@@ -200,8 +213,8 @@ bool initUART() {
   Serial.begin(115200);
   delay(100);
   
-  // 初始化APRS输出串口（UART1，9600 bps）
-  if (!aprsOutput.begin(UART_INSTANCE, UART_BAUDRATE, USE_DMA)) {
+  // 初始化APRS输出串口（UART1: PA9=TX, PA10=RX，9600 bps）
+  if (!aprsOutput.begin(Serial1, UART_BAUDRATE, USE_DMA)) {
     DEBUG_PRINTLN("UART初始化失败！");
     return false;
   }

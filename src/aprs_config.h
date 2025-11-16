@@ -77,7 +77,8 @@
 // UART配置
 // ============================================================================
 #define UART_BAUDRATE       9600        // UART波特率
-#define UART_INSTANCE       Serial1     // UART实例
+#define UART_TX_PIN         PA9         // UART TX引脚
+#define UART_RX_PIN         PA10        // UART RX引脚
 
 // ============================================================================
 // 调试配置

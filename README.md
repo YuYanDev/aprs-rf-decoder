@@ -183,11 +183,31 @@ cd sx1276-aprs-decoder-v2
 - 用Arduino IDE打开 `sx1276-aprs-decoder.ino`
 
 ### 3. 配置Arduino IDE
+
+**重要配置步骤：**
+
+#### 基本设置
 - **板卡选择**：工具 → 板卡 → STM32 boards groups → 选择你的MCU
   - 例如：Generic STM32L4 series
 - **板卡型号**：选择具体型号（如 Generic L412KBUx）
 - **上传方式**：STLink 或 Serial
 - **优化级别**：选择 "Fast (-O2)" 或 "Fastest (-O3)"
+
+#### UART引脚配置
+代码已经配置好UART1的引脚：
+- **TX引脚**: PA9
+- **RX引脚**: PA10
+
+如果需要使用不同的引脚，可在 `src/aprs_config.h` 中修改：
+```cpp
+#define UART_TX_PIN         PA9         // UART TX引脚
+#define UART_RX_PIN         PA10        // UART RX引脚
+```
+
+然后在 `aprs-rf-decoder.ino` 中更新 HardwareSerial 实例：
+```cpp
+HardwareSerial Serial1(UART_RX_PIN, UART_TX_PIN);
+```
 
 ### 4. 配置解码器（可选）
 编辑 `src/aprs_config.h`：
@@ -410,7 +430,7 @@ Arduino IDE设置：
    pllDPhase = 0x10000 / SAMPLES_PER_BIT;
    ```
 
-### 问题3：编译错误
+### 问题3：编译错误 - CMSIS-DSP
 **错误**：`'arm_fir_instance_f32' does not name a type`
 
 **解决**：
@@ -422,9 +442,34 @@ Arduino IDE设置：
 
 ### 问题4：UART无输出
 **检查**：
-1. UART引脚连接
+1. UART引脚连接（TX=PA9, RX=PA10）
 2. 波特率设置（9600）
 3. 使用USB-TTL转换器测试
+4. 确认引脚没有被其他外设占用
+
+**修改UART引脚**：
+如果PA9/PA10被占用，可以使用其他UART引脚。在 `aprs-rf-decoder.ino` 中修改：
+```cpp
+// 例如使用UART2 (PA2=TX, PA3=RX)
+HardwareSerial Serial1(PA3, PA2);  // RX, TX
+```
+
+### 问题5：编译错误 - HardwareSerial
+**错误**：与 `HardwareSerial` 相关的编译错误
+
+**原因**：某些旧版本的 STM32duino 可能需要不同的构造函数
+
+**解决方法**：
+尝试使用 USART 实例方式：
+```cpp
+// 在 aprs-rf-decoder.ino 中替换
+HardwareSerial Serial1(USART1);
+```
+
+或指定完整参数：
+```cpp
+HardwareSerial Serial1(PA10, PA9, NC, NC);  // RX, TX, RTS, CTS
+```
 
 ---
 
