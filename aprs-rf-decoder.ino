@@ -1,398 +1,389 @@
 /**
- * ============================================================================
- * SX1276/SX1278 APRS解码器
- * ============================================================================
+ * APRS RF Decoder for ESP32C3
  * 
- * 高性能APRS解码器，专为STM32平台优化
+ * 高性能APRS解码器，基于SX1276/SX1278和ESP32C3
  * 
- * 支持的MCU：
- * - STM32L412 (推荐)
- * - STM32F401
- * - STM32F411
- * - STM32G431
- * 
- * 功能特性：
- * - AFSK解调（Bell 202标准）
+ * 功能：
+ * - AFSK解调 (Bell 202, 1200/2200Hz)
  * - NRZI解码和比特去填充
  * - AX.25帧解析
- * - 自动载波检测
- * - 信号质量监测
- * - CMSIS-DSP加速（FPU/DSP型号）
- * - DMA高速传输
- * - 统计信息输出
+ * - APRS消息解码
+ * - UART输出 (TNC2格式)
  * 
  * 硬件连接：
- * - SX1276 NSS   -> PA4  (可配置)
- * - SX1276 DIO0  -> PA2  (可配置)
- * - SX1276 DIO2  -> PA3  (可配置，采样引脚)
- * - SX1276 RESET -> PA1  (可配置)
- * - UART1 TX     -> PA9  (APRS输出)
- * - UART1 RX     -> PA10
- * - Debug UART   -> USB串口
+ * - SX1276/SX1278 -> ESP32C3 (详见aprs_config.h)
+ * - UART1输出 -> 9600 baud
  * 
- * 作者: APRS解码器项目
- * 版本: 2.0
+ * 作者: [Your Name]
  * 日期: 2025
- * 
- * ============================================================================
+ * 许可: MIT
  */
 
 #include <RadioLib.h>
 #include "src/aprs_config.h"
+#include "src/afsk_demod.h"
+#include "src/nrzi_decoder.h"
+#include "src/ax25_parser.h"
 #include "src/aprs_decoder.h"
-#include "src/stm32_hal.h"
-
-// 根据是否支持DSP选择解码器
-#if USE_CMSIS_DSP
-  #include "src/aprs_decoder_enhanced.h"
-  APRSDecoderEnhanced decoder;
-  #define DECODER_TYPE "Enhanced (CMSIS-DSP)"
-#else
-  APRSDecoder decoder;
-  #define DECODER_TYPE "Standard"
-#endif
 
 // ============================================================================
-// 硬件配置
+// 全局对象
 // ============================================================================
 
-// SX1276/SX1278引脚定义
+// SX1278模块实例
+SX1278 radio = new Module(SX127X_NSS, SX127X_DIO0, SX127X_RESET, SX127X_DIO1);
 
-#define SX127X_DIO0   PA1
-#define SX127X_DIO1   PA2
-#define SX127X_DIO2   PA3   // 用于直接模式采样
-#define SX127X_NSS    PA4
-#define SX127X_SCK    PA5
-#define SX127X_MISO   PA6
-#define SX127X_MOSI   PA7
-#define SX127X_RESET  PB7
+// 解码器链
+AFSKDemodulator afskDemod;
+NRZIDecoder nrziDecoder;
+AX25Parser ax25Parser;
+APRSDecoder aprsDecoder;
 
+// UART输出
+HardwareSerial UARTOutput(1);  // UART1
 
-// RadioLib模块实例
-SX1278 radio = new Module(SX127X_NSS, SX127X_DIO0, SX127X_RESET, RADIOLIB_NC);
-
-// UART1实例 (用于APRS输出)
-// HardwareSerial构造函数: HardwareSerial(RX引脚, TX引脚)
-// 默认使用 PA10=RX, PA9=TX (USART1)
-HardwareSerial Serial1(PA10, PA9);
-
-// 如果需要使用其他引脚，可以修改上面的定义，例如：
-// HardwareSerial Serial1(PA3, PA2);   // USART2: RX=PA3, TX=PA2
-// HardwareSerial Serial1(PB11, PB10); // USART3: RX=PB11, TX=PB10
-// 
-// 或者直接使用USART实例（某些STM32duino版本）：
-// HardwareSerial Serial1(USART1);
-// HardwareSerial Serial1(USART2);
+// 性能统计
+unsigned long lastStatsTime = 0;
+unsigned long lastProcessTime = 0;
 
 // ============================================================================
-// 全局变量
-// ============================================================================
-
-// 采样缓冲区（双缓冲）
-uint8_t sampleBuffer1[SAMPLE_DMA_BUFFER_SIZE];
-uint8_t sampleBuffer2[SAMPLE_DMA_BUFFER_SIZE];
-
-// 统计计数器
-uint32_t lastStatsTime = 0;
-const uint32_t STATS_INTERVAL = 10000;  // 10秒输出一次统计
-
-// ============================================================================
-// 中断服务程序和回调函数
+// 中断服务函数 - DIO2数据接收
 // ============================================================================
 
 /**
- * 读取单个比特（由RadioLib直接模式调用）
+ * 直接模式接收中断处理函数
+ * 在每个采样点被调用 (26.4kHz频率)
  */
-void readBit(void) {
-  // 直接从DIO2引脚读取比特值
-  uint8_t bit = digitalRead(SX127X_DIO2);
-  
-  // 直接处理（实时模式）
-  decoder.processSample(bit);
-}
-
-/**
- * 采样定时器回调（备用方案）
- */
-void samplingTimerCallback(void) {
-  // 从DIO2读取比特
-  uint8_t bit = digitalRead(SX127X_DIO2);
-  decoder.processSample(bit);
-}
-
-/**
- * DMA传输完成回调
- */
-void dmaTransferCallback(uint8_t* buffer, uint16_t size) {
-  // 批量处理采样
-  #if USE_CMSIS_DSP
-    decoder.processSampleBatch(buffer, size);
-  #else
-    for (uint16_t i = 0; i < size; i++) {
-      decoder.processSample(buffer[i]);
-    }
-  #endif
+void IRAM_ATTR readBit(void) {
+    // 读取DIO2引脚的数据位
+    radio.readBit(SX127X_DIO2);
 }
 
 // ============================================================================
 // 初始化函数
 // ============================================================================
 
-/**
- * 初始化SX1276/SX1278射频模块
- */
-bool initRadio() {
-  DEBUG_PRINTLN("=================================");
-  DEBUG_PRINTLN("初始化SX1278射频模块...");
-  
-  // 初始化为FSK模式
-  // 频率: 434.0 MHz (测试), 比特率: 26.4 kbps
-  int state = radio.beginFSK(RF_FREQUENCY, RF_BITRATE, RF_DEVIATION);
-  
-  if (state != RADIOLIB_ERR_NONE) {
-    DEBUG_PRINT("初始化失败，错误代码: ");
-    DEBUG_PRINTLN(state);
-    return false;
-  }
-  
-  DEBUG_PRINTLN("SX1278初始化成功");
-  
-  // 启用OOK模式用于直接解调
-  radio.setOOK(true);
-  
-  // 设置直接模式同步字（AX.25前导码模式）
-  // 0x3F03F03F 对应26.4kHz采样率下的AFSK模式
-  radio.setDirectSyncWord(0x3F03F03F, 32);
-  
-  // 设置直接模式回调
-  radio.setDirectAction(readBit);
-  
-  // 启动直接模式接收
-  radio.receiveDirect();
-  
-  DEBUG_PRINTLN("直接模式接收已启动");
-  DEBUG_PRINTLN("=================================");
-  
-  return true;
-}
-
-/**
- * 初始化APRS解码器
- */
-bool initDecoder() {
-  DEBUG_PRINTLN("=================================");
-  DEBUG_PRINT("初始化APRS解码器 [");
-  DEBUG_PRINT(DECODER_TYPE);
-  DEBUG_PRINTLN("]");
-  
-  if (!decoder.begin()) {
-    DEBUG_PRINTLN("解码器初始化失败！");
-    return false;
-  }
-  
-  DEBUG_PRINTLN("解码器初始化成功");
-  
-  #if USE_CMSIS_DSP
-    // 启用自适应均衡器（可选）
-    // decoder.enableAdaptiveEqualizer(true);
-  #endif
-  
-  DEBUG_PRINTLN("=================================");
-  
-  return true;
-}
-
-/**
- * 初始化UART输出
- */
-bool initUART() {
-  DEBUG_PRINTLN("=================================");
-  DEBUG_PRINTLN("初始化UART输出...");
-  
-  // 初始化调试串口
-  Serial.begin(115200);
-  delay(100);
-  
-  // 初始化APRS输出串口（UART1: PA9=TX, PA10=RX，9600 bps）
-  if (!aprsOutput.begin(Serial1, UART_BAUDRATE, USE_DMA)) {
-    DEBUG_PRINTLN("UART初始化失败！");
-    return false;
-  }
-  
-  DEBUG_PRINTLN("UART初始化成功");
-  DEBUG_PRINTLN("=================================");
-  
-  return true;
-}
-
-/**
- * 打印系统信息
- */
-void printSystemInfo() {
-  DEBUG_PRINTLN("");
-  DEBUG_PRINTLN("╔════════════════════════════════════════╗");
-  DEBUG_PRINTLN("║   SX1276/SX1278 APRS解码器 v2.0      ║");
-  DEBUG_PRINTLN("╚════════════════════════════════════════╝");
-  DEBUG_PRINTLN("");
-  
-  DEBUG_PRINT("MCU型号: ");
-  DEBUG_PRINTLN(MCU_SERIES);
-  
-  DEBUG_PRINT("解码器类型: ");
-  DEBUG_PRINTLN(DECODER_TYPE);
-  
-  DEBUG_PRINT("采样率: ");
-  DEBUG_PRINT(AFSK_SAMPLE_RATE);
-  DEBUG_PRINTLN(" Hz");
-  
-  DEBUG_PRINT("波特率: ");
-  DEBUG_PRINT(AFSK_BAUD_RATE);
-  DEBUG_PRINTLN(" bps");
-  
-  #if HAS_FPU
-    DEBUG_PRINTLN("FPU: 已启用");
-  #endif
-  
-  #if HAS_DSP
-    DEBUG_PRINTLN("DSP: 已启用 (CMSIS-DSP)");
-  #endif
-  
-  #if USE_DMA
-    DEBUG_PRINTLN("DMA: 已启用");
-  #endif
-  
-  DEBUG_PRINTLN("");
-  DEBUG_PRINTLN("正在监听APRS信号...");
-  DEBUG_PRINTLN("----------------------------------------");
-}
-
-// ============================================================================
-// 主程序
-// ============================================================================
-
 void setup() {
-  // 初始化串口
-  if (!initUART()) {
-    while (1) { delay(1000); }  // 停止运行
-  }
-  
-  // 打印系统信息
-  printSystemInfo();
-  
-  // 初始化解码器
-  if (!initDecoder()) {
-    DEBUG_PRINTLN("致命错误: 解码器初始化失败！");
-    while (1) { delay(1000); }
-  }
-  
-  // 初始化射频模块
-  if (!initRadio()) {
-    DEBUG_PRINTLN("致命错误: 射频模块初始化失败！");
-    while (1) { delay(1000); }
-  }
-  
-  // 启动采样定时器（备用方案，如果不使用RadioLib的直接回调）
-  // samplingTimer.begin(AFSK_SAMPLE_RATE, samplingTimerCallback);
-  // samplingTimer.start();
-  
-  // 初始化DMA（可选，用于批量处理）
-  #if USE_DMA
-    // dmaManager.begin(sampleBuffer1, sampleBuffer2, 
-    //                  SAMPLE_DMA_BUFFER_SIZE, dmaTransferCallback);
-    // dmaManager.start();
-  #endif
-  
-  DEBUG_PRINTLN("系统就绪！");
-  DEBUG_PRINTLN("");
-  
-  lastStatsTime = millis();
-}
-
-void loop() {
-  // 检查是否有解码完成的帧
-  if (decoder.available()) {
-    // 获取解码后的帧
-    APRS_AX25Frame* frame = decoder.getFrame();
+    // 初始化串口监视器
+    Serial.begin(115200);
+    delay(100);
     
-    if (frame != nullptr && frame->valid) {
-      // 发送到UART1
-      aprsOutput.sendAPRSFrame(frame);
-      
-      // 调试输出
-      DEBUG_PRINTLN("");
-      DEBUG_PRINTLN("╔════════════════════════════════════════╗");
-      DEBUG_PRINTLN("║       接收到APRS帧！                  ║");
-      DEBUG_PRINTLN("╚════════════════════════════════════════╝");
-      
-      char callsign[16];
-      
-      // 源呼号
-      DEBUG_PRINT("源地址: ");
-      memset(callsign, 0, sizeof(callsign));
-      for (int i = 0; i < 7 && frame->source.callsign[i]; i++) {
-        callsign[i] = frame->source.callsign[i];
-      }
-      DEBUG_PRINT(callsign);
-      if (frame->source.ssid > 0) {
-        DEBUG_PRINT("-");
-        DEBUG_PRINT(frame->source.ssid);
-      }
-      DEBUG_PRINTLN("");
-      
-      // 目标呼号
-      DEBUG_PRINT("目标地址: ");
-      memset(callsign, 0, sizeof(callsign));
-      for (int i = 0; i < 7 && frame->destination.callsign[i]; i++) {
-        callsign[i] = frame->destination.callsign[i];
-      }
-      DEBUG_PRINT(callsign);
-      if (frame->destination.ssid > 0) {
-        DEBUG_PRINT("-");
-        DEBUG_PRINT(frame->destination.ssid);
-      }
-      DEBUG_PRINTLN("");
-      
-      // 信息字段
-      DEBUG_PRINT("信息字段: ");
-      for (uint16_t i = 0; i < frame->infoLen; i++) {
-        DEBUG_PRINT((char)frame->info[i]);
-      }
-      DEBUG_PRINTLN("");
-      
-      // 信号质量
-      DEBUG_PRINT("信号质量: ");
-      DEBUG_PRINT(decoder.getSignalQuality());
-      DEBUG_PRINTLN("%");
-      
-      DEBUG_PRINTLN("----------------------------------------");
+    Serial.println();
+    Serial.println(F("========================================"));
+    Serial.println(F("  APRS RF Decoder for ESP32C3"));
+    Serial.println(F("  Version 1.0"));
+    Serial.println(F("========================================"));
+    Serial.println();
+    
+    // 初始化UART输出
+    UARTOutput.begin(UART_OUTPUT_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
+    DEBUG_INFO("UART output initialized at 9600 baud");
+    
+    // 初始化SX1278
+    Serial.print(F("[SX1278] Initializing ... "));
+    
+    // 使用FSK模式，采样率26.4kHz
+    // beginFSK(freq, br, freqDev, rxBw, power, preambleLength)
+    int state = radio.beginFSK(APRS_FREQUENCY, SAMPLING_RATE);
+    
+    if (state == RADIOLIB_ERR_NONE) {
+        Serial.println(F("success!"));
+    } else {
+        Serial.print(F("failed, code "));
+        Serial.println(state);
+        Serial.println(F("Check wiring and configuration!"));
+        while (true) { delay(100); }
     }
-  }
-  
-  // 定期输出统计信息
-  if (millis() - lastStatsTime >= STATS_INTERVAL) {
-    DecoderStatistics* stats = decoder.getStatistics();
     
-    DEBUG_PRINTLN("");
-    DEBUG_PRINTLN("┌─── 统计信息 ───────────────────────┐");
-    DEBUG_PRINT("│ 接收帧数: ");
-    DEBUG_PRINT(stats->framesReceived);
-    DEBUG_PRINTLN("");
-    DEBUG_PRINT("│ 有效帧数: ");
-    DEBUG_PRINT(stats->framesValid);
-    DEBUG_PRINTLN("");
-    DEBUG_PRINT("│ CRC错误: ");
-    DEBUG_PRINT(stats->framesCRCError);
-    DEBUG_PRINTLN("");
-    DEBUG_PRINT("│ 接收字节: ");
-    DEBUG_PRINT(stats->bytesReceived);
-    DEBUG_PRINTLN("");
-    DEBUG_PRINTLN("└────────────────────────────────────┘");
-    DEBUG_PRINTLN("");
+    // 启用OOK模式用于直接模式接收
+    radio.setOOK(true);
+    
+    // 设置直接模式同步字
+    // 这是AX.25前导码的一部分，用于触发接收
+    radio.setDirectSyncWord(DIRECT_MODE_SYNC_WORD, SYNC_WORD_LENGTH);
+    
+    // 设置中断回调函数
+    radio.setDirectAction(readBit);
+    
+    DEBUG_INFO("SX1278 configured for direct mode reception");
+    
+    // 初始化解码器链
+    Serial.println(F("[Decoders] Initializing decoder chain ..."));
+    
+    if (!afskDemod.begin()) {
+        Serial.println(F("  AFSK Demodulator initialization failed!"));
+        while (true) { delay(100); }
+    }
+    
+    if (!nrziDecoder.begin()) {
+        Serial.println(F("  NRZI Decoder initialization failed!"));
+        while (true) { delay(100); }
+    }
+    
+    if (!ax25Parser.begin()) {
+        Serial.println(F("  AX.25 Parser initialization failed!"));
+        while (true) { delay(100); }
+    }
+    
+    if (!aprsDecoder.begin()) {
+        Serial.println(F("  APRS Decoder initialization failed!"));
+        while (true) { delay(100); }
+    }
+    
+    Serial.println(F("  All decoders initialized successfully!"));
+    Serial.println();
+    
+    // 启动直接模式接收
+    radio.receiveDirect();
+    
+    Serial.println(F("[Status] Listening for APRS packets..."));
+    Serial.println(F("========================================"));
+    Serial.println();
     
     lastStatsTime = millis();
-  }
-  
-  // 短暂延迟，避免CPU满载
-  delay(1);
+}
+
+// ============================================================================
+// 主循环
+// ============================================================================
+
+void loop() {
+    unsigned long loopStart = micros();
+    
+    // ========================================================================
+    // 1. 处理来自SX1278的采样数据
+    // ========================================================================
+    
+    // 检查是否有足够的采样数据可用
+    if (radio.available() > SAMPLES_PER_BIT) {
+        // 暂停接收以读取数据
+        radio.standby();
+        
+        // 读取所有可用的采样数据
+        while (radio.available()) {
+            uint8_t sample = radio.read();
+            
+            // 将采样数据逐字节处理
+            // 每个字节包含8个采样点
+            for (int8_t bit = 7; bit >= 0; bit--) {
+                uint8_t sampleBit = (sample >> bit) & 0x01;
+                
+                // 送入AFSK解调器
+                afskDemod.processSample(sampleBit);
+            }
+        }
+        
+        // 恢复接收
+        radio.receiveDirect();
+    }
+    
+    // ========================================================================
+    // 2. 从AFSK解调器读取解调后的比特
+    // ========================================================================
+    
+    while (afskDemod.available()) {
+        uint8_t bit = afskDemod.readBit();
+        
+        // 送入NRZI解码器
+        nrziDecoder.processBit(bit);
+    }
+    
+    // ========================================================================
+    // 3. 从NRZI解码器读取字节并进行帧解析
+    // ========================================================================
+    
+    // 检查帧开始
+    if (nrziDecoder.isFrameStart()) {
+        ax25Parser.startFrame();
+        nrziDecoder.clearFrameFlags();
+        
+        DEBUG_DEBUG("AX.25 frame start");
+    }
+    
+    // 读取字节并添加到帧解析器
+    while (nrziDecoder.available()) {
+        uint8_t byte = nrziDecoder.readByte();
+        ax25Parser.addByte(byte);
+    }
+    
+    // 检查帧结束
+    if (nrziDecoder.isFrameEnd()) {
+        bool frameValid = ax25Parser.endFrame();
+        nrziDecoder.clearFrameFlags();
+        
+        if (frameValid) {
+            DEBUG_INFO("Valid AX.25 frame received");
+        } else {
+            DEBUG_ERROR("Invalid AX.25 frame");
+        }
+    }
+    
+    // ========================================================================
+    // 4. 从AX.25解析器读取帧并解码APRS消息
+    // ========================================================================
+    
+    if (ax25Parser.available()) {
+        APRS_AX25Frame frame;
+        
+        if (ax25Parser.getFrame(&frame)) {
+            APRSMessage message;
+            
+            if (aprsDecoder.decodeFrame(&frame, &message)) {
+                // 成功解码APRS消息
+                
+                // 格式化为TNC2格式
+                char tnc2Buffer[512];
+                message.toTNC2(tnc2Buffer, sizeof(tnc2Buffer));
+                
+                // 输出到UART
+                UARTOutput.println(tnc2Buffer);
+                
+                // 同时输出到串口监视器
+                Serial.println();
+                Serial.println(F("========== APRS MESSAGE =========="));
+                Serial.print(F("From: "));
+                Serial.println(message.source);
+                Serial.print(F("To: "));
+                Serial.println(message.destination);
+                
+                if (message.path[0] != '\0') {
+                    Serial.print(F("Path: "));
+                    Serial.println(message.path);
+                }
+                
+                Serial.print(F("Type: "));
+                Serial.println((int)message.type);
+                
+                if (message.position.valid) {
+                    Serial.print(F("Position: "));
+                    Serial.print(message.position.latitude, 6);
+                    Serial.print(F(", "));
+                    Serial.println(message.position.longitude, 6);
+                }
+                
+                if (message.comment[0] != '\0') {
+                    Serial.print(F("Comment: "));
+                    Serial.println(message.comment);
+                }
+                
+                Serial.println(F("TNC2: "));
+                Serial.println(tnc2Buffer);
+                Serial.println(F("=================================="));
+                Serial.println();
+            }
+        }
+    }
+    
+    // ========================================================================
+    // 5. 性能统计和监控
+    // ========================================================================
+    
+    unsigned long currentTime = millis();
+    
+    if (ENABLE_PERFORMANCE_STATS && (currentTime - lastStatsTime >= STATS_REPORT_INTERVAL)) {
+        printStatistics();
+        lastStatsTime = currentTime;
+    }
+    
+    // 计算循环时间
+    unsigned long loopTime = micros() - loopStart;
+    lastProcessTime = loopTime;
+    
+    // 短暂延迟以避免过度占用CPU
+    // ESP32C3足够快，可以不需要延迟
+    // delay(1);
+}
+
+// ============================================================================
+// 辅助函数
+// ============================================================================
+
+/**
+ * 打印性能统计信息
+ */
+void printStatistics() {
+    Serial.println();
+    Serial.println(F("========== STATISTICS =========="));
+    
+    // AFSK解调器统计
+    uint32_t totalBits, errorBits;
+    float errorRate;
+    afskDemod.getStats(&totalBits, &errorBits, &errorRate);
+    
+    bool pllLocked;
+    uint8_t signalQuality;
+    afskDemod.getStatus(&pllLocked, &signalQuality);
+    
+    Serial.println(F("[AFSK Demodulator]"));
+    Serial.print(F("  Total bits: "));
+    Serial.println(totalBits);
+    Serial.print(F("  Error bits: "));
+    Serial.println(errorBits);
+    Serial.print(F("  Error rate: "));
+    Serial.print(errorRate * 100.0, 2);
+    Serial.println(F("%"));
+    Serial.print(F("  PLL locked: "));
+    Serial.println(pllLocked ? F("YES") : F("NO"));
+    Serial.print(F("  Signal quality: "));
+    Serial.print(signalQuality);
+    Serial.println(F("%"));
+    
+    // NRZI解码器统计
+    uint32_t nrziTotalBits, stuffedBits, frameCount;
+    nrziDecoder.getStats(&nrziTotalBits, &stuffedBits, &frameCount);
+    
+    Serial.println(F("[NRZI Decoder]"));
+    Serial.print(F("  Total bits: "));
+    Serial.println(nrziTotalBits);
+    Serial.print(F("  Stuffed bits: "));
+    Serial.println(stuffedBits);
+    Serial.print(F("  Frame count: "));
+    Serial.println(frameCount);
+    
+    // AX.25解析器统计
+    uint32_t totalFrames, validFrames, fcsErrors;
+    ax25Parser.getStats(&totalFrames, &validFrames, &fcsErrors);
+    
+    Serial.println(F("[AX.25 Parser]"));
+    Serial.print(F("  Total frames: "));
+    Serial.println(totalFrames);
+    Serial.print(F("  Valid frames: "));
+    Serial.println(validFrames);
+    Serial.print(F("  FCS errors: "));
+    Serial.println(fcsErrors);
+    
+    if (totalFrames > 0) {
+        float successRate = (float)validFrames / (float)totalFrames * 100.0;
+        Serial.print(F("  Success rate: "));
+        Serial.print(successRate, 2);
+        Serial.println(F("%"));
+    }
+    
+    // APRS解码器统计
+    uint32_t totalMessages, positionReports, parseErrors;
+    aprsDecoder.getStats(&totalMessages, &positionReports, &parseErrors);
+    
+    Serial.println(F("[APRS Decoder]"));
+    Serial.print(F("  Total messages: "));
+    Serial.println(totalMessages);
+    Serial.print(F("  Position reports: "));
+    Serial.println(positionReports);
+    Serial.print(F("  Parse errors: "));
+    Serial.println(parseErrors);
+    
+    // 系统资源
+    Serial.println(F("[System]"));
+    Serial.print(F("  Free heap: "));
+    Serial.print(ESP.getFreeHeap());
+    Serial.println(F(" bytes"));
+    Serial.print(F("  Loop time: "));
+    Serial.print(lastProcessTime);
+    Serial.println(F(" us"));
+    Serial.print(F("  Uptime: "));
+    Serial.print(millis() / 1000);
+    Serial.println(F(" seconds"));
+    
+    Serial.println(F("================================"));
+    Serial.println();
 }
 

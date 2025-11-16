@@ -1,57 +1,22 @@
-# SX1276/SX1278 APRS解码器 V2
+# APRS RF Decoder for ESP32C3
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-STM32-orange.svg)]()
-[![Version](https://img.shields.io/badge/version-2.0-green.svg)]()
+一个基于ESP32C3和SX1276/SX1278的高性能APRS解码器，使用Arduino框架开发。
 
-一个针对STM32平台优化的高性能APRS（Automatic Packet Reporting System）解码器，使用SX1276/SX1278射频模块。
+## 项目简介
 
----
+本项目实现了一个完整的APRS (Automatic Packet Reporting System) 射频解码器，能够接收和解码144.64 MHz频段的APRS数据包。解码器使用数字信号处理技术从RF信号中提取APRS消息，并通过UART输出标准TNC2格式数据。
 
-## 📋 目录
+### 主要特性
 
-- [功能特性](#功能特性)
-- [系统架构](#系统架构)
-- [硬件要求](#硬件要求)
-- [软件依赖](#软件依赖)
-- [安装指南](#安装指南)
-- [配置说明](#配置说明)
-- [使用方法](#使用方法)
-- [技术原理](#技术原理)
-- [性能优化](#性能优化)
-- [故障排除](#故障排除)
-- [开发计划](#开发计划)
+- ✅ **高性能AFSK解调**：基于数字相关器和能量检测，采样率26.4kHz
+- ✅ **精确的时钟恢复**：数字PLL实现，确保稳定的比特同步
+- ✅ **完整的协议栈**：AFSK → NRZI → AX.25 → APRS
+- ✅ **CRC校验**：自动验证AX.25帧的FCS (Frame Check Sequence)
+- ✅ **TNC2格式输出**：兼容标准APRS软件
+- ✅ **实时性能监控**：统计信息、错误率、信号质量指标
+- ✅ **模块化设计**：清晰的代码结构，易于维护和扩展
 
----
-
-## ✨ 功能特性
-
-### 核心功能
-- ✅ **AFSK解调**：支持Bell 202标准（1200Hz/2200Hz）
-- ✅ **NRZI解码**：自动NRZI解码和比特去填充
-- ✅ **AX.25解析**：完整的AX.25 UI帧解析
-- ✅ **CRC校验**：CRC-16-CCITT错误检测
-- ✅ **载波检测**：自动载波检测和同步
-- ✅ **信号质量**：实时信号质量监测
-
-### 高级特性
-- 🚀 **DSP加速**：使用CMSIS-DSP库优化（支持FPU的MCU）
-- 🚀 **自适应均衡**：可选的自适应均衡器
-- 🚀 **DMA传输**：高效的DMA数据传输
-- 🚀 **双缓冲机制**：无缝数据处理
-- 📊 **统计信息**：详细的接收统计
-
-### 支持的MCU
-| MCU型号 | FPU | DSP | 推荐度 |
-|---------|-----|-----|--------|
-| STM32L412 | ✅ | ✅ | ⭐⭐⭐⭐⭐ |
-| STM32F401 | ✅ | ✅ | ⭐⭐⭐⭐ |
-| STM32F411 | ✅ | ✅ | ⭐⭐⭐⭐⭐ |
-| STM32G431 | ✅ | ✅ | ⭐⭐⭐⭐⭐ |
-
----
-
-## 🏗️ 系统架构
+## 系统架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -63,7 +28,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                   AFSK解调器                                │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │ Goertzel算法 │→ │  能量计算   │→ │   比特判决   │    │
+│  │  数字相关器  │→ │  能量计算   │→ │   比特判决   │    │
 │  │ (1200/2200Hz)│  │             │  │    (PLL)     │    │
 │  └──────────────┘  └──────────────┘  └──────────────┘    │
 └────────────────────┬────────────────────────────────────────┘
@@ -80,7 +45,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                  AX.25解析器                                │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │  地址解析    │→ │  CRC校验     │→ │  信息提取    │    │
+│  │  地址解析    │→ │  FCS校验     │→ │  信息提取    │    │
 │  └──────────────┘  └──────────────┘  └──────────────┘    │
 └────────────────────┬────────────────────────────────────────┘
                      │ APRS消息
@@ -91,454 +56,307 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 模块说明
-
-#### 1. **AFSK解调器** (`afsk_demod.cpp`)
-- **Goertzel算法**：高效的单频检测
-- **PLL位同步**：自动时钟恢复
-- **能量计算**：Mark/Space频率能量比较
-- **载波检测**：基于能量阈值的载波检测
-
-#### 2. **NRZI解码器** (`nrzi_decoder.cpp`)
-- **NRZI解码**：跳变→0，无跳变→1
-- **比特去填充**：移除连续5个1后的填充0
-- **帧标志检测**：识别0x7E标志
-
-#### 3. **AX.25解析器** (`ax25_parser.cpp`)
-- **地址解析**：源/目标/中继地址
-- **CRC-16校验**：帧完整性验证
-- **信息提取**：APRS负载数据
-
-#### 4. **增强解码器** (`aprs_decoder_enhanced.cpp`)
-- **CMSIS-DSP优化**：使用ARM DSP指令
-- **FIR滤波**：带通滤波器
-- **自适应均衡**：补偿信道失真
-- **批量处理**：DMA批处理支持
-
----
-
-## 🔌 硬件要求
+## 硬件要求
 
 ### 必需硬件
-- **STM32开发板**（L412/F401/F411/G431）
-- **SX1276或SX1278模块**
-- **天线**（适合工作频率）
 
-### 引脚连接
+1. **ESP32C3开发板**
+   - 推荐型号：ESP32-C3-DevKitM-1 或兼容板
+   - 需要支持Arduino框架
 
-| SX1276引脚 | STM32引脚 | 说明 |
-|------------|-----------|------|
-| NSS | PA4 | SPI片选 |
-| MOSI | PA7 | SPI数据输出 |
-| MISO | PA6 | SPI数据输入 |
-| SCK | PA5 | SPI时钟 |
-| DIO0 | PA2 | 中断引脚 |
-| **DIO2** | **PA3** | **直接模式采样（关键）** |
-| RESET | PA1 | 复位引脚 |
-| GND | GND | 地 |
-| VCC | 3.3V | 电源 |
+2. **SX1276/SX1278 LoRa模块**
+   - 推荐频段：144 MHz (APRS频段)
+   - 需要支持FSK模式和直接模式输出
 
-**注意**：DIO2引脚是关键采样引脚，必须连接正确！
+3. **天线**
+   - 144 MHz谐振天线或宽带天线
 
-### UART连接
-| 功能 | 引脚 | 波特率 |
-|------|------|--------|
-| 调试输出 | USB串口 | 115200 |
-| **APRS输出** | **UART1 (PA9)** | **9600** |
+### 硬件连接
 
----
-
-## 📦 软件依赖
-
-### Arduino IDE配置
-1. 安装 **Arduino IDE** 1.8.19 或更高版本
-2. 安装 **STM32duino** 板卡支持：
-   - 在板卡管理器中搜索 "STM32"
-   - 安装 "STM32 MCU based boards" by STMicroelectronics
-
-### 必需库
 ```
-RadioLib (>= 6.0.0)     // 射频模块驱动
+ESP32C3          SX1276/SX1278
+-------          -------------
+GPIO 5    <-->   NSS (CS)
+GPIO 2    <-->   DIO0
+GPIO 9    <-->   RESET
+GPIO 3    <-->   DIO1
+GPIO 4    <-->   DIO2 (数据输出)
+3.3V      <-->   VCC
+GND       <-->   GND
+
+UART1输出:
+GPIO 21   --->   TX (9600 baud)
+GPIO 20   <-->   RX (可选)
 ```
 
-安装方法：
-```
-Arduino IDE -> 工具 -> 管理库 -> 搜索 "RadioLib" -> 安装
-```
+**注意**：请根据实际使用的ESP32C3开发板调整引脚定义，在 `src/aprs_config.h` 中修改。
 
-### 可选库（DSP支持）
-对于支持DSP的MCU，需要CMSIS-DSP库（通常STM32duino已包含）。
+## 软件依赖
 
----
+### Arduino IDE 设置
 
-## 🚀 安装指南
+1. 安装 **Arduino IDE** 2.0 或更高版本
+2. 安装 **ESP32 开发板支持**：
+   - 在Arduino IDE中，打开 `文件` → `首选项`
+   - 在"附加开发板管理器网址"中添加：
+     ```
+     https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+     ```
+   - 打开 `工具` → `开发板` → `开发板管理器`
+   - 搜索"ESP32"并安装
 
-### 1. 克隆代码
+### 库依赖
+
+1. **RadioLib** (必需)
+   - 在Arduino IDE中打开 `工具` → `管理库`
+   - 搜索"RadioLib"并安装最新版本
+   - 或访问：https://github.com/jgromes/RadioLib
+
+## 安装和配置
+
+### 1. 克隆或下载项目
+
 ```bash
-git clone https://github.com/your-repo/sx1276-aprs-decoder-v2.git
-cd sx1276-aprs-decoder-v2
+git clone https://github.com/your-username/aprs-rf-decoder.git
+cd aprs-rf-decoder
 ```
 
-### 2. 打开项目
-- 用Arduino IDE打开 `sx1276-aprs-decoder.ino`
+### 2. 配置硬件参数
 
-### 3. 配置Arduino IDE
+编辑 `src/aprs_config.h` 文件，根据实际硬件调整：
 
-**重要配置步骤：**
-
-#### 基本设置
-- **板卡选择**：工具 → 板卡 → STM32 boards groups → 选择你的MCU
-  - 例如：Generic STM32L4 series
-- **板卡型号**：选择具体型号（如 Generic L412KBUx）
-- **上传方式**：STLink 或 Serial
-- **优化级别**：选择 "Fast (-O2)" 或 "Fastest (-O3)"
-
-#### UART引脚配置
-代码已经配置好UART1的引脚：
-- **TX引脚**: PA9
-- **RX引脚**: PA10
-
-如果需要使用不同的引脚，可在 `src/aprs_config.h` 中修改：
 ```cpp
-#define UART_TX_PIN         PA9         // UART TX引脚
-#define UART_RX_PIN         PA10        // UART RX引脚
+// SX1276/SX1278引脚定义
+#define SX127X_NSS      5
+#define SX127X_DIO0     2
+#define SX127X_RESET    9
+#define SX127X_DIO1     3
+#define SX127X_DIO2     4
+
+// UART配置
+#define UART_TX_PIN     21
+#define UART_RX_PIN     20
+
+// APRS频率 (根据当地法规调整)
+#define APRS_FREQUENCY  144.64  // MHz
 ```
 
-然后在 `aprs-rf-decoder.ino` 中更新 HardwareSerial 实例：
-```cpp
-HardwareSerial Serial1(UART_RX_PIN, UART_TX_PIN);
-```
+### 3. 编译和上传
 
-### 4. 配置解码器（可选）
-编辑 `src/aprs_config.h`：
-```cpp
-#define RF_FREQUENCY        144.39      // APRS频率 (MHz)
-#define UART_BAUDRATE       9600        // UART波特率
-#define DEBUG_ENABLED       1           // 启用调试输出
-```
+1. 在Arduino IDE中打开 `aprs-rf-decoder.ino`
+2. 选择正确的开发板：`工具` → `开发板` → `ESP32C3 Dev Module`
+3. 选择正确的端口：`工具` → `端口`
+4. 点击"上传"按钮
 
-### 5. 编译上传
-- 点击 "验证" 按钮编译
-- 点击 "上传" 按钮上传到STM32
+### 4. 监控输出
 
-### 6. 测试
-- 打开串口监视器（115200 bps）
-- 观察启动信息和解码输出
+1. 打开串口监视器：`工具` → `串口监视器`
+2. 设置波特率为 **115200**
+3. 系统启动后会显示初始化信息和接收到的APRS消息
 
----
+## 使用说明
 
-## ⚙️ 配置说明
+### 基本操作
 
-### 频率配置
-**重要**：默认配置使用434.0 MHz作为测试频率。使用APRS频段前请确保：
-- 持有业余无线电执照
-- 修改 `RF_FREQUENCY` 为合法频率
-
-常用APRS频率：
-| 地区 | 频率 (MHz) |
-|------|-----------|
-| 北美 | 144.390 |
-| 欧洲 | 144.800 |
-| 日本 | 144.660 |
-| 中国 | 144.640 |
-| 澳洲 | 145.175 |
-
-### 采样率配置
-```cpp
-#define AFSK_SAMPLE_RATE    26400       // Hz - 采样频率
-```
-26.4 kHz 可被1200和2200整除，是最优采样率。不建议修改。
-
-### 调试输出
-```cpp
-#define DEBUG_ENABLED       1           // 1=启用，0=禁用
-```
-禁用调试输出可节省内存和CPU资源。
-
-### DSP优化
-DSP优化会自动根据MCU型号启用。可在 `src/aprs_decoder_enhanced.cpp` 中调整：
-```cpp
-// 启用自适应均衡器
-decoder.enableAdaptiveEqualizer(true);
-```
-
----
-
-## 📖 使用方法
-
-### 基本使用
-1. 上传代码到STM32
-2. 连接天线到SX1276
-3. 打开串口监视器（115200 bps）
-4. 等待APRS信号
+1. **启动系统**：上电后，系统会自动初始化并开始监听APRS频段
+2. **接收消息**：当接收到有效的APRS数据包时，会在串口监视器和UART1输出
+3. **性能监控**：每30秒输出一次统计信息（可在配置文件中调整）
 
 ### 输出格式
 
-#### 调试输出（Serial，115200 bps）
+#### UART输出 (TNC2格式)
+
 ```
-╔════════════════════════════════════════╗
-║       接收到APRS帧！                  ║
-╚════════════════════════════════════════╝
-源地址: N7LEM-5
-目标地址: APRS
-信息字段: !3745.12N/12205.34W>Hello APRS
-信号质量: 87%
-----------------------------------------
+CALL-1>APRS,WIDE1-1:!3751.50N/12139.00W>Hello World
 ```
 
-#### APRS输出（UART1，9600 bps）
-```
-N7LEM-5>APRS:!3745.12N/12205.34W>Hello APRS
-```
+#### 串口监视器输出
 
-### 统计信息
-每10秒输出一次统计：
 ```
-┌─── 统计信息 ───────────────────────┐
-│ 接收帧数: 25
-│ 有效帧数: 23
-│ CRC错误: 2
-│ 接收字节: 1024
-└────────────────────────────────────┘
+========== APRS MESSAGE ==========
+From: CALL-1
+To: APRS
+Path: WIDE1-1
+Type: 0
+Position: 37.858333, -121.650000
+Comment: Hello World
+TNC2: CALL-1>APRS,WIDE1-1:!3751.50N/12139.00W>Hello World
+==================================
 ```
 
----
+### 性能统计
 
-## 🔬 技术原理
+系统会定期输出以下统计信息：
 
-### AFSK调制原理
-AFSK（Audio Frequency Shift Keying）使用两个不同频率表示0和1：
-- **Mark（1）**：2200 Hz
-- **Space（0）**：1200 Hz
+- **AFSK解调器**：总比特数、错误率、PLL锁定状态、信号质量
+- **NRZI解码器**：处理的比特数、比特填充计数、帧计数
+- **AX.25解析器**：总帧数、有效帧数、CRC错误数、成功率
+- **APRS解码器**：总消息数、位置报告数、解析错误数
+- **系统资源**：空闲堆内存、循环时间、运行时间
 
-采样率为26.4 kHz，每个比特周期包含22个采样点：
+## 代码结构
+
 ```
-26400 / 1200 = 22 samples/bit
+aprs-rf-decoder/
+├── aprs-rf-decoder.ino      # 主程序
+├── src/
+│   ├── aprs_config.h         # 配置文件
+│   ├── afsk_demod.h          # AFSK解调器头文件
+│   ├── afsk_demod.cpp        # AFSK解调器实现
+│   ├── nrzi_decoder.h        # NRZI解码器头文件
+│   ├── nrzi_decoder.cpp      # NRZI解码器实现
+│   ├── ax25_parser.h         # AX.25解析器头文件
+│   ├── ax25_parser.cpp       # AX.25解析器实现
+│   ├── aprs_decoder.h        # APRS解码器头文件
+│   └── aprs_decoder.cpp      # APRS解码器实现
+├── reference-file/           # 参考文件和示例
+└── README.md                 # 本文件
 ```
 
-### Goertzel算法
-Goertzel算法是一种高效的单频检测算法，相比FFT更适合检测特定频率：
+## 技术细节
+
+### AFSK解调
+
+采用**数字相关器**方法：
+
+1. **采样率**：26.4 kHz (26400 = 1200×22 = 2200×12)
+2. **频率检测**：使用本地振荡器与接收信号相关
+   - Mark (1200 Hz)：22个采样/周期
+   - Space (2200 Hz)：12个采样/周期
+3. **能量比较**：计算Mark和Space的能量，进行比特判决
+4. **时钟恢复**：数字PLL跟踪比特边沿，动态调整采样相位
+
+### NRZI解码
+
+AX.25使用NRZI (Non-Return-to-Zero Inverted)编码：
+
+- **比特0**：电平跳变
+- **比特1**：电平保持
+
+### 比特去填充
+
+AX.25使用比特填充防止数据中出现帧标志：
+
+- 连续5个1后插入一个0
+- 解码器自动检测并移除填充比特
+
+### AX.25帧结构
+
+```
+┌──────┬─────────┬─────────┬───────────┬─────────┬─────┬─────┬─────┬──────┐
+│ Flag │ Dest    │ Source  │ Digis     │ Control │ PID │ Info│ FCS │ Flag │
+│ 0x7E │ (7 B)   │ (7 B)   │ (0-56 B)  │ (1 B)   │(1 B)│     │(2 B)│ 0x7E │
+└──────┴─────────┴─────────┴───────────┴─────────┴─────┴─────┴─────┴──────┘
+```
+
+### CRC校验
+
+使用 **CRC-16-CCITT** 算法：
+
+- 多项式：0x1021
+- 初始值：0xFFFF
+- 最终异或：0xFFFF
+
+## 调试和优化
+
+### 调试级别
+
+在 `src/aprs_config.h` 中设置调试级别：
 
 ```cpp
-// Goertzel算法核心
-omega = 2π × freq / sampleRate
-coeff = 2 × cos(omega)
-
-for each sample:
-    q0 = coeff × q1 - q2 + sample
-    q2 = q1
-    q1 = q0
-
-magnitude² = q1² + q2² - q1×q2×coeff
+#define DEBUG_LEVEL  DEBUG_LEVEL_INFO  // NONE, ERROR, INFO, DEBUG, VERBOSE
 ```
 
-### NRZI编码
-NRZI（Non-Return-to-Zero Inverted）：
-- **无跳变** = 1
-- **有跳变** = 0
+### 性能优化建议
 
-这种编码避免了长串0导致的时钟同步丢失。
+1. **降低调试输出**：设置 `DEBUG_LEVEL` 为 `DEBUG_LEVEL_NONE` 可提升性能
+2. **调整缓冲区大小**：根据实际需求调整各级缓冲区大小
+3. **使用定点数**：在配置中启用 `USE_FIXED_POINT` (当前默认使用浮点数)
 
-### PLL位同步
-使用数字PLL进行比特同步：
-```cpp
-pllPhase += pllDPhase
+### 常见问题
 
-if (transition detected):
-    if (pllPhase < halfway):
-        pllDPhase -= adjustment  // 减慢时钟
-    else:
-        pllDPhase += adjustment  // 加快时钟
-```
+#### 1. 无法接收到任何信号
 
-### AX.25帧格式
-```
-┌─────────┬─────────┬─────────┬──────────┬─────┬──────┬─────────┐
-│  Flag   │ Address │ Address │ Control  │ PID │ Info │  FCS   │
-│  0x7E   │ (Dest)  │ (Source)│   0x03   │0xF0 │      │(2bytes)│
-└─────────┴─────────┴─────────┴──────────┴─────┴──────┴─────────┘
-```
+- 检查硬件连接
+- 确认天线是否正确连接
+- 检查频率设置是否正确
+- 确认APRS频段在当地是否有活跃电台
+
+#### 2. 接收到信号但解码失败
+
+- 检查PLL锁定状态和信号质量
+- 调整 `ENERGY_THRESHOLD_RATIO` 参数
+- 增加天线增益或改善接收位置
+
+#### 3. CRC校验总是失败
+
+- 检查NRZI解码是否正确
+- 确认比特去填充工作正常
+- 检查信号质量是否足够
+
+#### 4. 系统崩溃或重启
+
+- 检查堆内存使用情况
+- 减小缓冲区大小
+- 降低采样率（不推荐）
+
+## 性能指标
+
+在理想条件下的典型性能：
+
+- **解码成功率**：> 95%
+- **CRC错误率**：< 5%
+- **循环时间**：< 1000 μs
+- **内存占用**：< 50 KB
+
+## 法律和许可
+
+### 业余无线电许可
+
+**重要提示**：在大多数国家/地区，使用APRS频段需要有效的业余无线电操作执照。请确保：
+
+1. 您拥有有效的业余无线电执照
+2. 使用的频率符合当地法规
+3. 仅接收而不发射（本项目仅实现接收功能）
+
+### 软件许可
+
+本项目使用 MIT 许可证。详见 LICENSE 文件。
+
+## 贡献
+
+欢迎贡献！如果您有改进建议或发现bug，请：
+
+1. Fork 本仓库
+2. 创建您的特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交您的更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启一个 Pull Request
+
+## 致谢
+
+- **RadioLib**：https://github.com/jgromes/RadioLib - 优秀的射频库
+- **APRS协议**：Bob Bruninga, WB4APR - APRS协议的发明者
+- **参考实现**：RadioLib作者的APRS接收实验
+
+## 联系方式
+
+- 项目主页：https://github.com/your-username/aprs-rf-decoder
+- 问题反馈：https://github.com/your-username/aprs-rf-decoder/issues
+
+## 更新日志
+
+### v1.0.0 (2025-11-16)
+
+- ✅ 初始版本发布
+- ✅ 实现AFSK解调
+- ✅ 实现NRZI解码和比特去填充
+- ✅ 实现AX.25帧解析
+- ✅ 实现APRS消息解码
+- ✅ 添加UART输出
+- ✅ 添加性能监控和统计
 
 ---
 
-## ⚡ 性能优化
-
-### 基础解码器性能
-- **CPU占用率**：约40-60%（F4系列@84MHz）
-- **内存使用**：约8KB RAM
-- **解码成功率**：>95%（良好信号条件）
-
-### 增强解码器性能（DSP优化）
-- **CPU占用率**：约25-40%（使用硬件加速）
-- **解码成功率**：>98%（带自适应均衡）
-- **加速比**：约1.5-2x
-
-### 优化建议
-
-#### 1. 编译器优化
-Arduino IDE设置：
-```
-工具 → 优化 → Fastest (-O3)
-```
-
-#### 2. 时钟频率
-使用最高系统时钟：
-- STM32L412: 80 MHz
-- STM32F401: 84 MHz
-- STM32F411: 100 MHz
-- STM32G431: 170 MHz
-
-#### 3. 禁用调试输出
-生产环境中：
-```cpp
-#define DEBUG_ENABLED       0
-```
-
-#### 4. 使用DMA
-启用DMA批量处理可降低中断开销。
-
----
-
-## 🐛 故障排除
-
-### 问题1：无法接收信号
-**症状**：没有任何帧输出
-
-**排查步骤**：
-1. 检查天线连接
-2. 检查频率设置（`RF_FREQUENCY`）
-3. 检查DIO2引脚连接
-4. 确认载波检测：
-   ```cpp
-   DEBUG_PRINT("Carrier: ");
-   DEBUG_PRINTLN(afskDemod.isCarrierDetected());
-   ```
-
-### 问题2：CRC错误率高
-**症状**：接收到帧但CRC错误多
-
-**可能原因**：
-- 信号太弱
-- 频率偏移
-- 采样时钟不准
-
-**解决方法**：
-1. 改善天线位置
-2. 调整PLL参数：
-   ```cpp
-   // 在afsk_demod.cpp中调整
-   pllDPhase = 0x10000 / SAMPLES_PER_BIT;
-   ```
-
-### 问题3：编译错误 - CMSIS-DSP
-**错误**：`'arm_fir_instance_f32' does not name a type`
-
-**解决**：
-- 检查是否安装了CMSIS-DSP
-- 临时禁用DSP：
-  ```cpp
-  #define USE_CMSIS_DSP     0
-  ```
-
-### 问题4：UART无输出
-**检查**：
-1. UART引脚连接（TX=PA9, RX=PA10）
-2. 波特率设置（9600）
-3. 使用USB-TTL转换器测试
-4. 确认引脚没有被其他外设占用
-
-**修改UART引脚**：
-如果PA9/PA10被占用，可以使用其他UART引脚。在 `aprs-rf-decoder.ino` 中修改：
-```cpp
-// 例如使用UART2 (PA2=TX, PA3=RX)
-HardwareSerial Serial1(PA3, PA2);  // RX, TX
-```
-
-### 问题5：编译错误 - HardwareSerial
-**错误**：与 `HardwareSerial` 相关的编译错误
-
-**原因**：某些旧版本的 STM32duino 可能需要不同的构造函数
-
-**解决方法**：
-尝试使用 USART 实例方式：
-```cpp
-// 在 aprs-rf-decoder.ino 中替换
-HardwareSerial Serial1(USART1);
-```
-
-或指定完整参数：
-```cpp
-HardwareSerial Serial1(PA10, PA9, NC, NC);  // RX, TX, RTS, CTS
-```
-
----
-
-## 📊 性能测试
-
-### 测试环境
-- MCU: STM32F411CEU6 @100MHz
-- 编译优化: -O3
-- 信号强度: -80 dBm
-
-### 测试结果
-| 测试项 | 基础解码器 | 增强解码器 |
-|--------|-----------|-----------|
-| CPU占用 | 58% | 35% |
-| 解码成功率 | 94.3% | 97.8% |
-| 平均延迟 | 120ms | 85ms |
-| CRC错误率 | 5.7% | 2.2% |
-
----
-
-## 🛣️ 开发计划
-
-### v2.1（计划中）
-- [ ] 支持9600 bps G3RUH调制
-- [ ] 增加频谱显示功能
-- [ ] Web界面配置
-
-### v2.2（计划中）
-- [ ] SD卡日志记录
-- [ ] GPS时间同步
-- [ ] iGate功能
-
-### v3.0（长期计划）
-- [ ] 双频同时接收
-- [ ] APRS发射功能
-- [ ] 数字中继器模式
-
----
-
-## 📄 许可证
-
-本项目采用MIT许可证 - 详见 [LICENSE](LICENSE) 文件
-
----
-
-## 🙏 致谢
-
-- **RadioLib** - jgromes：优秀的射频库
-- **CMSIS-DSP** - ARM：DSP优化库
-- **STM32duino** - 社区：Arduino移植
-
----
-
-## 📞 联系方式
-
-- **问题反馈**：[GitHub Issues](https://github.com/your-repo/sx1276-aprs-decoder-v2/issues)
-- **邮件**：your-email@example.com
-
----
-
-## ⚠️ 免责声明
-
-**重要提示**：
-1. 本项目仅供学习和研究使用
-2. 在APRS频段发射前，请确保持有有效的业余无线电执照
-3. 遵守当地无线电管理法规
-4. 作者不对非法使用承担任何责任
-
----
-
-**祝您使用愉快！73！** 📻
+**73!** (业余无线电问候语)
 

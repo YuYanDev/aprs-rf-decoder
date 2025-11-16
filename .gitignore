@@ -1,1 +1,24 @@
-/reference-file/*
+# Arduino build artifacts
+*.bin
+*.hex
+*.elf
+*.map
+
+# Build directories
+build/
+.build/
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*~
+
