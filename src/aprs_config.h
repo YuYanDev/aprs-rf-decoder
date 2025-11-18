@@ -14,11 +14,11 @@
 // ============================================================================
 
 // SX1276/SX1278引脚定义 (根据实际硬件修改)
-#define SX127X_NSS      5    // NSS/CS引脚
-#define SX127X_DIO0     2    // DIO0引脚
-#define SX127X_RESET    9    // RESET引脚
-#define SX127X_DIO1     3    // DIO1引脚
-#define SX127X_DIO2     4    // DIO2引脚 (用于直接模式数据输出)
+#define SX127X_NSS      7    // NSS/CS引脚
+#define SX127X_DIO0     0    // DIO0引脚
+#define SX127X_RESET    10    // RESET引脚
+#define SX127X_DIO1     1    // DIO1引脚
+#define SX127X_DIO2     2    // DIO2引脚 (用于直接模式数据输出)
 
 // UART配置
 #define UART_OUTPUT_BAUD    9600
@@ -30,7 +30,7 @@
 // ============================================================================
 
 // APRS频率 (中国业余频段 144.640 MHz，请根据当地法规调整)
-#define APRS_FREQUENCY      144.64  // MHz
+#define APRS_FREQUENCY      144.39  // MHz
 
 // FSK参数
 // 采样率选择26.4kHz：26400 = 1200×22 = 2200×12，便于频率检测
